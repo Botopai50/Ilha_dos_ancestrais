@@ -1,75 +1,32 @@
 extends Node3D
 
-var tile_scenes: Array[PackedScene] = []
+var grass_scenes: Array[PackedScene] = []
+var snow_scenes: Array[PackedScene] = []
+var mountain_scenes: Array[PackedScene] = []
+
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
 @export var tile_spacing: float = 100.0
-@export var noise_threshold: float = 0.2
 
-var noise = FastNoiseLite.new()
+var island_noise = FastNoiseLite.new()
+var biome_noise = FastNoiseLite.new()
+var mountain_noise = FastNoiseLite.new()
 
-var palette_material: ShaderMaterial
+var palette_material: StandardMaterial3D
 
 func _ready():
-	var shader = Shader.new()
-	shader.code = """
-	shader_type spatial;
-	render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
-	
-	uniform sampler2D atlas_texture : source_color, filter_nearest;
-	uniform sampler2D noise_texture : repeat_enable, filter_linear;
-	
-	varying flat vec3 poly_color;
-	
-	void vertex() {
-		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		
-		// Amostra o ruido com escala pequena para biomas gigantes
-		float n = textureLod(noise_texture, world_pos.xz * 0.0002, 0.0).r;
-		
-		vec4 tex_color = textureLod(atlas_texture, UV, 0.0);
-		vec3 final_col = tex_color.rgb;
-		
-		// Extrai a luminosidade (tons de cinza) para manter o sombreamento pintado original (AO)
-		float lum = dot(final_col, vec3(0.299, 0.587, 0.114));
-		
-		if (n > 0.65) {
-			// Bioma de Neve: usa a sombra original, mas colore de branco/gelo
-			final_col = vec3(lum) * vec3(1.3, 1.35, 1.4);
-		} else if (n < 0.35) {
-			// Bioma de Deserto: usa a sombra original, mas colore de areia
-			final_col = vec3(lum) * vec3(1.3, 1.15, 0.75);
-		}
-		// Se estiver entre 0.35 e 0.65, mantem a cor original da Grama!
-		
-		poly_color = clamp(final_col, vec3(0.0), vec3(1.0));
-	}
-	
-	void fragment() {
-		ALBEDO = poly_color;
-	}
-	"""
-	
-	palette_material = ShaderMaterial.new()
-	palette_material.shader = shader
-	
+	# Carrega a paleta de cores original do asset pack sem nenhum shader
+	palette_material = StandardMaterial3D.new()
 	var path = "res://Assets/TerrainModels/CPT_Terrain_Texture_Atlas_01.png"
 	var img = Image.load_from_file(ProjectSettings.globalize_path(path))
 	if img:
 		var texture = ImageTexture.create_from_image(img)
-		palette_material.set_shader_parameter("atlas_texture", texture)
-		
-	var noise_tex = NoiseTexture2D.new()
-	var fnoise = FastNoiseLite.new()
-	fnoise.seed = randi()
-	fnoise.frequency = 0.02 # Frequencia interna do ruido (suavidade)
-	noise_tex.noise = fnoise
-	palette_material.set_shader_parameter("noise_texture", noise_tex)
+		palette_material.albedo_texture = texture
+		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	
-	noise = FastNoiseLite.new()
 	load_terrain_models()
-	if tile_scenes.is_empty():
-		print("Warning: No tile scenes found in Assets/TerrainModels.")
+	if grass_scenes.is_empty() and snow_scenes.is_empty() and mountain_scenes.is_empty():
+		print("Warning: No terrain scenes found in Assets/TerrainModels.")
 		return
 		
 	generate_island()
@@ -81,61 +38,48 @@ func load_terrain_models():
 		var file_name = dir.get_next()
 		while file_name != "":
 			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				if file_name.begins_with("CPT_Terrain_L_a_") or file_name.begins_with("MT_Terrain_L_a_"):
+				# CPT_Terrain_L_a_ são as planícies brancas de neve originais do pacote
+				if file_name.begins_with("CPT_Terrain_L_a_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
-						tile_scenes.append(scene)
+						snow_scenes.append(scene)
+				# As outras letras CPT (b, c, d, e, f, g) são as planícies e colinas de grama verde
+				elif file_name.begins_with("CPT_Terrain_L_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						grass_scenes.append(scene)
+				# MT_Terrain_L_ são todas as montanhas com relevo escarpado
+				elif file_name.begins_with("MT_Terrain_L_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						mountain_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
-		
-	# FALLBACK: Se o Godot falhar em carregar os FBX (falta de importação), cria um bloco básico
-	if tile_scenes.is_empty():
-		print("FBX files not imported yet. Generating a fallback BoxMesh tile...")
-		var fallback_scene = PackedScene.new()
-		var mesh_instance = MeshInstance3D.new()
-		var box = BoxMesh.new()
-		box.size = Vector3(4, 2, 4)
-		var mat = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.2, 0.6, 0.2) # Verde mato
-		box.material = mat
-		mesh_instance.mesh = box
-		
-		var col_body = StaticBody3D.new()
-		var col_shape = CollisionShape3D.new()
-		var box_shape = BoxShape3D.new()
-		box_shape.size = Vector3(4, 2, 4)
-		col_shape.shape = box_shape
-		col_body.add_child(col_shape)
-		mesh_instance.add_child(col_body)
-		
-		# Ajusta a origem para o topo do bloco
-		mesh_instance.position.y = -1.0
-		
-		var root = Node3D.new()
-		root.add_child(mesh_instance)
-		
-		# Propriedade owner é necessária para o PackedScene funcionar
-		mesh_instance.owner = root
-		col_body.owner = root
-		col_shape.owner = root
-		
-		fallback_scene.pack(root)
-		tile_scenes.append(fallback_scene)
 
 func generate_island():
-	noise.seed = randi()
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.03
+	# Ruído para a forma geral da ilha
+	island_noise.seed = randi()
+	island_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	island_noise.frequency = 0.03
+	
+	# Ruído suave para distribuir grandes áreas de biomas
+	biome_noise.seed = randi()
+	biome_noise.noise_type = FastNoiseLite.TYPE_PERLIN
+	biome_noise.frequency = 0.08
+	
+	# Ruído para agrupar as montanhas em cordilheiras
+	mountain_noise.seed = randi()
+	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
+	mountain_noise.frequency = 0.12
 	
 	var center_x = grid_size_x / 2.0
 	var center_z = grid_size_z / 2.0
-	var max_radius = min(center_x, center_z)
 	
-	# Move o jogador para o centro exato da grade gerada, um pouco acima para ele cair no chão
+	# Move o jogador para o centro da ilha
 	var player = get_node_or_null("../Player")
 	if player:
-		player.position = Vector3(center_x * tile_spacing, 10.0, center_z * tile_spacing)
+		player.position = Vector3(center_x * tile_spacing, 25.0, center_z * tile_spacing)
 
 	for x in range(grid_size_x):
 		for z in range(grid_size_z):
@@ -144,23 +88,42 @@ func generate_island():
 			var dist = sqrt(dist_x * dist_x + dist_z * dist_z) * 2.0
 			var falloff = clamp(1.0 - dist, 0.0, 1.0)
 			
-			var noise_val = (noise.get_noise_2d(x * 10.0, z * 10.0) + 1.0) / 2.0
+			var noise_val = (island_noise.get_noise_2d(x * 10.0, z * 10.0) + 1.0) / 2.0
 			var final_val = noise_val * falloff
 			
-			# Garante que o centro da ilha (onde o jogador nasce) sempre tenha blocos
-			var center_dist = sqrt(pow(x - grid_size_x/2.0, 2) + pow(z - grid_size_z/2.0, 2))
-			if final_val > 0.3 or center_dist < 3.0:
+			var center_dist = sqrt(pow(x - center_x, 2) + pow(z - center_z, 2))
+			if final_val > 0.25 or center_dist < 2.5:
 				spawn_tile(x, z)
 
 func spawn_tile(x: int, z: int):
-	var tile_index = randi() % tile_scenes.size()
-	var tile_instance = tile_scenes[tile_index].instantiate()
+	var mnt_val = mountain_noise.get_noise_2d(x * 5.0, z * 5.0)
+	var bio_val = biome_noise.get_noise_2d(x * 5.0, z * 5.0)
+	
+	var chosen_scene: PackedScene = null
+	
+	# Cadeias de montanhas onde o ruído de relevo é alto
+	if mnt_val > 0.15 and not mountain_scenes.is_empty():
+		chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
+	# Grandes áreas de neve onde o ruído de bioma é alto
+	elif bio_val > 0.25 and not snow_scenes.is_empty():
+		chosen_scene = snow_scenes[randi() % snow_scenes.size()]
+	# Grandes áreas de grama nos demais locais (bioma predominante da ilha)
+	elif not grass_scenes.is_empty():
+		chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+	elif not mountain_scenes.is_empty():
+		chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
+		
+	if not chosen_scene:
+		return
+		
+	var tile_instance = chosen_scene.instantiate()
 	add_child(tile_instance)
 	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing)
-	# var random_rot = (randi() % 4) * (PI / 2.0)
-	# tile_instance.rotation.y = random_rot
 	
-	# Gera colisão para que o jogador não caia e aplica material
+	# Rotação modular (0, 90, 180, 270 graus) para dar variedade visual
+	var random_rot = (randi() % 4) * (PI / 2.0)
+	tile_instance.rotation.y = random_rot
+	
 	create_collisions_recursive(tile_instance)
 
 func create_collisions_recursive(node: Node):
@@ -170,3 +133,4 @@ func create_collisions_recursive(node: Node):
 			node.material_override = palette_material
 	for child in node.get_children():
 		create_collisions_recursive(child)
+
