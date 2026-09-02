@@ -29,33 +29,28 @@ func _ready():
 	
 	void vertex() {
 		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		
-		// Amostra o ruído global contínuo no espaço do mundo
 		float n = textureLod(noise_texture, world_pos.xz * 0.001, 0.0).r;
 		
-		vec2 uv = UV;
-		
-		// O atlas CPT_Terrain_Texture_Atlas_01 é dividido em 4 quadrantes exatos:
-		// Top-Left (x < 0.5, y < 0.5)     = GRAMA VERDE (#98d276)
-		// Top-Right (x >= 0.5, y < 0.5)    = NEVE BRANCA (#ffffff)
-		// Bottom-Left (x < 0.5, y >= 0.5)  = PEDRA CINZA (#a3a39b)
-		// Bottom-Right (x >= 0.5, y >= 0.5)= AREIA/DESERTO (#ccbc84)
-		
-		// Apenas as faces de chão/grama (x < 0.5, y < 0.5) são alteradas para os biomas.
-		// Os paredões de pedra das montanhas (y >= 0.5) permanecem sempre como pedra!
-		if (uv.x < 0.5 && uv.y < 0.5) {
-			if (n > 0.80) {
-				// Neve: bioma menor (aprox. 15% do mapa)
-				uv.x += 0.5;
-			} else if (n < 0.28) {
-				// Areia/Praia: bioma intermediário (aprox. 25-30% do mapa, maior que a neve)
-				uv.x += 0.5;
-				uv.y += 0.5;
-			}
-			// O restante (aprox. 55-60% do mapa) permanece como o bioma principal: GRAMA VERDE!
+		// Determina o bioma continental unificado para todo o chão da ilha (Grama, Areia ou Neve)
+		vec2 biome_uv;
+		if (n > 0.80) {
+			biome_uv = vec2(0.75, 0.25); // Quadrante Neve
+		} else if (n < 0.28) {
+			biome_uv = vec2(0.75, 0.75); // Quadrante Areia
+		} else {
+			biome_uv = vec2(0.25, 0.25); // Quadrante Grama
 		}
 		
-		final_uv = uv;
+		// Paredões e encostas rochosas íngremes das montanhas permanecem como pedra cinza
+		if (UV.x < 0.5 && UV.y >= 0.5 && VERTEX.y > 2.5) {
+			if (n > 0.80) {
+				biome_uv = vec2(0.75, 0.25); // Cume com neve
+			} else {
+				biome_uv = vec2(0.25, 0.75); // Rocha cinza
+			}
+		}
+		
+		final_uv = biome_uv;
 	}
 	
 	void fragment() {
