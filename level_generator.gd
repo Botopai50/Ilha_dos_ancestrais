@@ -1,9 +1,9 @@
 extends Node3D
 
 var tile_scenes: Array[PackedScene] = []
-@export var grid_size_x: int = 40
-@export var grid_size_z: int = 40
-@export var tile_spacing: float = 4.0
+@export var grid_size_x: int = 15
+@export var grid_size_z: int = 15
+@export var tile_spacing: float = 50.0
 @export var noise_threshold: float = 0.2
 
 var noise = FastNoiseLite.new()
