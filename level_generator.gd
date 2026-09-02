@@ -106,35 +106,33 @@ func load_terrain_models():
 func generate_island():
 	island_noise.seed = randi()
 	island_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	island_noise.frequency = 0.03
+	island_noise.frequency = 0.2
 	
 	mountain_noise.seed = randi()
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	mountain_noise.frequency = 0.12
+	mountain_noise.frequency = 0.08
 	
-	var center_x = grid_size_x / 2.0
-	var center_z = grid_size_z / 2.0
+	var center_x = (grid_size_x - 1) / 2.0
+	var center_z = (grid_size_z - 1) / 2.0
 	
 	var player = get_node_or_null("../Player")
 	if player:
-		player.position = Vector3(center_x * tile_spacing, 25.0, center_z * tile_spacing)
+		player.position = Vector3(center_x * tile_spacing, 35.0, center_z * tile_spacing)
 
 	for x in range(grid_size_x):
 		for z in range(grid_size_z):
-			var dist_x = float(x) / grid_size_x - 0.5
-			var dist_z = float(z) / grid_size_z - 0.5
-			var dist = sqrt(dist_x * dist_x + dist_z * dist_z) * 2.0
-			var falloff = clamp(1.0 - dist, 0.0, 1.0)
+			var angle = atan2(z - center_z, x - center_x)
+			var rad_variation = island_noise.get_noise_2d(cos(angle) * 5.0, sin(angle) * 5.0) * 1.2
+			var max_radius = 4.2 + rad_variation
+			var dist = sqrt(pow(x - center_x, 2) + pow(z - center_z, 2))
 			
-			var noise_val = (island_noise.get_noise_2d(x * 10.0, z * 10.0) + 1.0) / 2.0
-			var final_val = noise_val * falloff
-			
-			var center_dist = sqrt(pow(x - center_x, 2) + pow(z - center_z, 2))
-			if final_val > 0.25 or center_dist < 2.5:
+			# Todo o interior da ilha até a costa é 100% preenchido, eliminando buracos
+			if dist <= max_radius:
 				spawn_tile(x, z)
 
 func spawn_tile(x: int, z: int):
-	var mnt_val = mountain_noise.get_noise_2d(x * 5.0, z * 5.0)
+	# Agrupa montanhas de forma suave em cadeias
+	var mnt_val = mountain_noise.get_noise_2d(x * 2.0, z * 2.0)
 	
 	var chosen_scene: PackedScene = null
 	
