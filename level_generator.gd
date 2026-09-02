@@ -8,17 +8,65 @@ var tile_scenes: Array[PackedScene] = []
 
 var noise = FastNoiseLite.new()
 
-var palette_material: StandardMaterial3D
+var palette_material: ShaderMaterial
 
 func _ready():
-	# Cria o material com a textura paleta que dá as cores
-	palette_material = StandardMaterial3D.new()
+	var shader = Shader.new()
+	shader.code = """
+	shader_type spatial;
+	render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+	
+	uniform sampler2D atlas_texture : source_color, filter_nearest;
+	uniform sampler2D noise_texture : repeat_enable, filter_nearest;
+	
+	varying flat vec3 poly_color;
+	
+	void vertex() {
+		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		float noise = textureLevel(noise_texture, world_pos.xz * 0.015, 0.0).r;
+		vec4 tex_color = textureLevel(atlas_texture, UV, 0.0);
+		
+		float h = world_pos.y;
+		vec3 final_col = tex_color.rgb;
+		
+		// Transição chapada por triângulo (parecido com as montanhas)
+		if (h + (noise * 30.0) > 35.0) {
+			// Neve (Snow)
+			final_col = vec3(0.9, 0.95, 1.0); 
+		} else if (h - (noise * 15.0) < 2.0) {
+			// Areia/Terra (Sand/Dirt)
+			final_col = mix(tex_color.rgb, vec3(0.76, 0.7, 0.5), 0.8);
+		}
+		
+		poly_color = final_col;
+	}
+	
+	void fragment() {
+		ALBEDO = poly_color;
+	}
+	"""
+	
+	palette_material = ShaderMaterial.new()
+	palette_material.shader = shader
+	
 	var path = "res://Assets/TerrainModels/CPT_Terrain_Texture_Atlas_01.png"
 	var img = Image.load_from_file(ProjectSettings.globalize_path(path))
 	if img:
 		var texture = ImageTexture.create_from_image(img)
-		palette_material.albedo_texture = texture
-		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST # Pra ficar bem crisp/low-poly
+		palette_material.set_shader_parameter("atlas_texture", texture)
+		
+	# Cria uma textura de ruído para o shader
+	var noise_tex = NoiseTexture2D.new()
+	var fnoise = FastNoiseLite.new()
+	fnoise.seed = randi()
+	fnoise.frequency = 0.02
+	noise_tex.noise = fnoise
+	palette_material.set_shader_parameter("noise_texture", noise_tex)
+	
+	noise = FastNoiseLite.new()
+	noise.seed = randi()
+	noise.noise_type = FastNoiseLite.TYPE_PERLIN
+	noise.frequency = 0.05
 	
 	load_terrain_models()
 	if tile_scenes.is_empty():
@@ -27,13 +75,28 @@ func _ready():
 		
 	generate_island()
 
+func get_random_piece() -> String:
+	var files = []
+	var dir = DirAccess.open("res://Assets/TerrainModels")
+	if dir:
+		dir.list_dir_begin()
+		var file_name = dir.get_next()
+		while file_name != "":
+			# Pega Apenas peças do tipo 'a' (Grass/Montanha base) para evitar cortes quadrados de biomas
+			if not dir.current_is_dir() and file_name.ends_with(".fbx") and "CPT_Terrain_L_a_" in file_name and not "LOD" in file_name:
+				files.append("res://Assets/TerrainModels/" + file_name)
+			file_name = dir.get_next()
+	if files.size() > 0:
+		return files[randi() % files.size()]
+	return ""
+
 func load_terrain_models():
 	var dir = DirAccess.open("res://Assets/TerrainModels/")
 	if dir:
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("CPT_Terrain_L_"):
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("CPT_Terrain_L_a_"):
 				var scene = load("res://Assets/TerrainModels/" + file_name)
 				if scene is PackedScene:
 					tile_scenes.append(scene)
