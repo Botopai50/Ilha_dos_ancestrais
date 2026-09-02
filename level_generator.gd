@@ -5,6 +5,7 @@ var mountain_scenes: Array[PackedScene] = []
 var river_straight_scenes: Array[PackedScene] = []
 var river_curve_scenes: Array[PackedScene] = []
 var lake_scenes: Array[PackedScene] = []
+var coastal_mouth_scenes: Array[PackedScene] = []
 
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
@@ -113,11 +114,16 @@ func load_terrain_models():
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						mountain_scenes.append(scene)
-				# Carrega bacias de lagos
-				elif file_name.begins_with("CPT_River_End_"):
+				# Carrega exclusivamente lagos fechados para o interior da ilha (com relevo de terra fechado, sem cortes retos)
+				elif file_name in ["CPT_River_End_L_a_01.fbx", "CPT_River_End_L_a_01_R.fbx", "CPT_River_End_L_b_01.fbx"]:
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						lake_scenes.append(scene)
+				# Carrega fozes e deságues com bordas abertas para o oceano na borda da ilha
+				elif file_name.begins_with("CPT_River_End_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						coastal_mouth_scenes.append(scene)
 				# Carrega trechos retos de rio
 				elif file_name.begins_with("CPT_River_L_a_") or file_name.begins_with("CPT_River_L_d_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
@@ -157,7 +163,7 @@ func plan_rivers_and_lakes():
 	river_cells[Vector2i(6, 6)] = { "type": "straight", "rot": 0 }
 	river_cells[Vector2i(6, 7)] = { "type": "straight", "rot": 0 }
 	river_cells[Vector2i(6, 8)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(6, 9)] = { "type": "mouth", "rot": 0 }
+	river_cells[Vector2i(6, 9)] = { "type": "mouth", "rot": 2 }
 
 func spawn_water_plane():
 	var ocean = MeshInstance3D.new()
@@ -210,8 +216,11 @@ func spawn_tile(x: int, z: int):
 		rot_idx = info["rot"]
 		if info["type"] == "curve" and not river_curve_scenes.is_empty():
 			chosen_scene = river_curve_scenes[randi() % river_curve_scenes.size()]
-		elif info["type"] == "mouth" and not lake_scenes.is_empty():
-			chosen_scene = lake_scenes[randi() % lake_scenes.size()]
+		elif info["type"] == "mouth":
+			if not coastal_mouth_scenes.is_empty():
+				chosen_scene = coastal_mouth_scenes[randi() % coastal_mouth_scenes.size()]
+			elif not lake_scenes.is_empty():
+				chosen_scene = lake_scenes[randi() % lake_scenes.size()]
 		elif not river_straight_scenes.is_empty():
 			chosen_scene = river_straight_scenes[randi() % river_straight_scenes.size()]
 		elif not grass_scenes.is_empty():
