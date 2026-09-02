@@ -1,9 +1,9 @@
 extends Node3D
 
 var tile_scenes: Array[PackedScene] = []
-@export var grid_size_x: int = 15
-@export var grid_size_z: int = 15
-@export var tile_spacing: float = 50.0
+@export var grid_size_x: int = 10
+@export var grid_size_z: int = 10
+@export var tile_spacing: float = 100.0
 @export var noise_threshold: float = 0.2
 
 var noise = FastNoiseLite.new()
@@ -22,7 +22,7 @@ func load_terrain_models():
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("MT_Terrain_M_"):
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("CPT_Terrain_L_"):
 				var scene = load("res://Assets/TerrainModels/" + file_name)
 				if scene is PackedScene:
 					tile_scenes.append(scene)
