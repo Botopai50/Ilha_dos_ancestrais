@@ -22,7 +22,7 @@ func load_terrain_models():
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name and ("MT_Terrain_M_a" in file_name or "MT_Terrain_M_b" in file_name):
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("MT_Terrain_"):
 				var scene = load("res://Assets/TerrainModels/" + file_name)
 				if scene is PackedScene:
 					tile_scenes.append(scene)
