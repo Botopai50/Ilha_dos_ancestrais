@@ -24,26 +24,23 @@ func _ready():
 	void vertex() {
 		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		
-		// Amostra o ruido com escala MUITO MENOR (0.0002) para gerar biomas GIGANTES
+		// Amostra o ruido com escala pequena para biomas gigantes
 		float n = textureLod(noise_texture, world_pos.xz * 0.0002, 0.0).r;
 		
 		vec4 tex_color = textureLod(atlas_texture, UV, 0.0);
 		vec3 final_col = tex_color.rgb;
 		
-		// A transicao (picotado) so vai acontecer na exata fronteira onde o ruido cruza os limites!
-		// No resto do bioma, a cor ficara 100% solida.
-		if (n > 0.6) {
-			// Neve
-			final_col = mix(final_col, vec3(0.9, 0.95, 1.0), 0.95);
-		} else if (n < 0.4) {
-			// Deserto/Areia
-			final_col = mix(final_col, vec3(0.85, 0.75, 0.55), 0.95);
-		}
+		// Extrai a luminosidade (tons de cinza) para manter o sombreamento pintado original (AO)
+		float lum = dot(final_col, vec3(0.299, 0.587, 0.114));
 		
-		// Neve no topo das montanhas independente do bioma
-		if (world_pos.y > 22.0) {
-			final_col = mix(final_col, vec3(1.0, 1.0, 1.0), 0.9);
+		if (n > 0.7) {
+			// Bioma de Neve: usa a sombra original, mas colore de branco/gelo
+			final_col = vec3(lum) * vec3(1.5, 1.55, 1.6);
+		} else if (n < 0.3) {
+			// Bioma de Deserto: usa a sombra original, mas colore de areia
+			final_col = vec3(lum) * vec3(1.5, 1.3, 0.9);
 		}
+		// Se estiver entre 0.3 e 0.7, mantem a cor original da Grama!
 		
 		poly_color = final_col;
 	}
