@@ -2,6 +2,9 @@ extends Node3D
 
 var grass_scenes: Array[PackedScene] = []
 var mountain_scenes: Array[PackedScene] = []
+var river_straight_scenes: Array[PackedScene] = []
+var river_curve_scenes: Array[PackedScene] = []
+var lake_scenes: Array[PackedScene] = []
 
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
@@ -9,6 +12,9 @@ var mountain_scenes: Array[PackedScene] = []
 var mountain_noise = FastNoiseLite.new()
 
 var palette_material: ShaderMaterial
+var water_material: ShaderMaterial
+var river_cells: Dictionary = {}
+var lake_cells: Dictionary = {}
 
 func _ready():
 	var shader = Shader.new()
@@ -82,6 +88,12 @@ func _ready():
 	noise_tex.noise = fnoise
 	palette_material.set_shader_parameter("noise_texture", noise_tex)
 	
+	# Prepara material de água low-poly
+	water_material = ShaderMaterial.new()
+	var w_shader = load("res://water.gdshader")
+	if w_shader:
+		water_material.shader = w_shader
+
 	load_terrain_models()
 	if grass_scenes.is_empty() and mountain_scenes.is_empty():
 		print("Warning: No terrain scenes found in Assets/TerrainModels.")
@@ -106,20 +118,81 @@ func load_terrain_models():
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						mountain_scenes.append(scene)
+				# Carrega bacias de lagos
+				elif file_name.begins_with("CPT_River_End_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						lake_scenes.append(scene)
+				# Carrega trechos retos de rio
+				elif file_name.begins_with("CPT_River_L_a_") or file_name.begins_with("CPT_River_L_d_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						river_straight_scenes.append(scene)
+				# Carrega curvas de rio
+				elif file_name.begins_with("CPT_River_L_b_") or file_name.begins_with("CPT_River_L_c_") or file_name.begins_with("CPT_River_L_e_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						river_curve_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
+
+func plan_rivers_and_lakes():
+	river_cells.clear()
+	lake_cells.clear()
+	
+	# 1. Grande Lago Central em vale panorâmico
+	lake_cells[Vector2i(4, 3)] = { "rot": randi() % 4 }
+	lake_cells[Vector2i(5, 3)] = { "rot": randi() % 4 }
+	lake_cells[Vector2i(4, 4)] = { "rot": randi() % 4 }
+	
+	# 2. Lago Alpino / Montanha
+	lake_cells[Vector2i(7, 5)] = { "rot": randi() % 4 }
+	lake_cells[Vector2i(7, 6)] = { "rot": randi() % 4 }
+	
+	# 3. Rio Norte (Nascente que corre do Norte até o Lago Central)
+	river_cells[Vector2i(4, 0)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(4, 1)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(4, 2)] = { "type": "straight", "rot": 0 }
+	
+	# 4. Rio Sul (Flui do Lago Central em direção à costa sul)
+	river_cells[Vector2i(5, 4)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(5, 5)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(5, 6)] = { "type": "curve", "rot": 1 }
+	river_cells[Vector2i(6, 6)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(6, 7)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(6, 8)] = { "type": "straight", "rot": 0 }
+	river_cells[Vector2i(6, 9)] = { "type": "mouth", "rot": 0 }
+
+func spawn_water_plane():
+	var ocean = MeshInstance3D.new()
+	ocean.name = "OceanWaterPlane"
+	var pm = PlaneMesh.new()
+	pm.size = Vector2(3000.0, 3000.0)
+	pm.subdivide_width = 120
+	pm.subdivide_depth = 120
+	ocean.mesh = pm
+	if water_material:
+		ocean.material_override = water_material
+	ocean.position = Vector3(
+		(grid_size_x * tile_spacing) / 2.0,
+		-0.7,
+		(grid_size_z * tile_spacing) / 2.0
+	)
+	add_child(ocean)
 
 func generate_island():
 	mountain_noise.seed = randi()
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
 	mountain_noise.frequency = 0.08
 	
-	var center_x = (grid_size_x - 1) / 2.0
-	var center_z = (grid_size_z - 1) / 2.0
+	plan_rivers_and_lakes()
+	spawn_water_plane()
+	
 	var player = get_node_or_null("../Player")
 	if player:
-		player.position = Vector3((grid_size_x * tile_spacing) / 2.0, 35.0, (grid_size_z * tile_spacing) / 2.0)
+		# Posiciona o jogador no topo de uma colina com vista para o rio e lago
+		player.position = Vector3(300.0, 25.0, 250.0)
 
 	# Preenche 100% das células do mapa garantindo que não falte nenhum módulo
 	for x in range(grid_size_x):
@@ -127,29 +200,45 @@ func generate_island():
 			spawn_tile(x, z)
 
 func spawn_tile(x: int, z: int):
-	# Agrupa montanhas de forma suave em cadeias
-	var mnt_val = mountain_noise.get_noise_2d(x * 2.0, z * 2.0)
-	
+	var pos_key = Vector2i(x, z)
 	var chosen_scene: PackedScene = null
+	var rot_idx = 0
 	
-	if mnt_val > 0.15 and not mountain_scenes.is_empty():
-		chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
-	elif not grass_scenes.is_empty():
-		chosen_scene = grass_scenes[randi() % grass_scenes.size()]
-	elif not mountain_scenes.is_empty():
-		chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
+	if lake_cells.has(pos_key):
+		rot_idx = lake_cells[pos_key]["rot"]
+		if not lake_scenes.is_empty():
+			chosen_scene = lake_scenes[randi() % lake_scenes.size()]
+		elif not grass_scenes.is_empty():
+			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+	elif river_cells.has(pos_key):
+		var info = river_cells[pos_key]
+		rot_idx = info["rot"]
+		if info["type"] == "curve" and not river_curve_scenes.is_empty():
+			chosen_scene = river_curve_scenes[randi() % river_curve_scenes.size()]
+		elif info["type"] == "mouth" and not lake_scenes.is_empty():
+			chosen_scene = lake_scenes[randi() % lake_scenes.size()]
+		elif not river_straight_scenes.is_empty():
+			chosen_scene = river_straight_scenes[randi() % river_straight_scenes.size()]
+		elif not grass_scenes.is_empty():
+			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+	else:
+		rot_idx = randi() % 4
+		var mnt_val = mountain_noise.get_noise_2d(x * 2.0, z * 2.0)
+		if mnt_val > 0.15 and not mountain_scenes.is_empty():
+			chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
+		elif not grass_scenes.is_empty():
+			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+		elif not mountain_scenes.is_empty():
+			chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
 		
 	if not chosen_scene:
 		return
 		
 	var tile_instance = chosen_scene.instantiate()
 	add_child(tile_instance)
-	
-	# Sorteia rotação modular de 90 em 90 graus para dar rica variedade ao terreno
-	var rot_idx = randi() % 4
 	tile_instance.rotation.y = rot_idx * (PI / 2.0)
 	
-	# Compensa o pivô interno dos modelos FBX (que já possuem rotação de 180° importada do Blender/FBX)
+	# Compensa o pivô interno dos modelos FBX (180° nativos)
 	var rot_offsets = [
 		Vector3(0.0, 0, 100.0),     # 0 graus
 		Vector3(100.0, 0, 100.0),   # 90 graus
