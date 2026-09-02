@@ -17,7 +17,7 @@ func _ready():
 	render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 	
 	uniform sampler2D atlas_texture : source_color, filter_nearest;
-	uniform sampler2D noise_texture : repeat_enable, filter_nearest;
+	uniform sampler2D noise_texture : repeat_enable, filter_linear;
 	
 	varying flat vec3 poly_color;
 	
@@ -33,16 +33,16 @@ func _ready():
 		// Extrai a luminosidade (tons de cinza) para manter o sombreamento pintado original (AO)
 		float lum = dot(final_col, vec3(0.299, 0.587, 0.114));
 		
-		if (n > 0.7) {
+		if (n > 0.65) {
 			// Bioma de Neve: usa a sombra original, mas colore de branco/gelo
-			final_col = vec3(lum) * vec3(1.5, 1.55, 1.6);
-		} else if (n < 0.3) {
+			final_col = vec3(lum) * vec3(1.3, 1.35, 1.4);
+		} else if (n < 0.35) {
 			// Bioma de Deserto: usa a sombra original, mas colore de areia
-			final_col = vec3(lum) * vec3(1.5, 1.3, 0.9);
+			final_col = vec3(lum) * vec3(1.3, 1.15, 0.75);
 		}
-		// Se estiver entre 0.3 e 0.7, mantem a cor original da Grama!
+		// Se estiver entre 0.35 e 0.65, mantem a cor original da Grama!
 		
-		poly_color = final_col;
+		poly_color = clamp(final_col, vec3(0.0), vec3(1.0));
 	}
 	
 	void fragment() {
