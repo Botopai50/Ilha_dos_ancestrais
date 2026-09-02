@@ -19,11 +19,6 @@ func _ready():
 		var texture = ImageTexture.create_from_image(img)
 		palette_material.albedo_texture = texture
 		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST # Pra ficar bem crisp/low-poly
-
-	noise = FastNoiseLite.new()
-	noise.seed = randi()
-	noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	noise.frequency = 0.05
 	
 	load_terrain_models()
 	if tile_scenes.is_empty():
@@ -32,32 +27,16 @@ func _ready():
 		
 	generate_island()
 
-func get_random_piece() -> String:
-	var files = []
-	var dir = DirAccess.open("res://Assets/TerrainModels")
-	if dir:
-		dir.list_dir_begin()
-		var file_name = dir.get_next()
-		while file_name != "":
-			if not dir.current_is_dir() and file_name.ends_with(".fbx") and not "LOD" in file_name:
-				if file_name.begins_with("CPT_Terrain_L_a_") or file_name.begins_with("MT_Terrain_L_a_"):
-					files.append("res://Assets/TerrainModels/" + file_name)
-			file_name = dir.get_next()
-	if files.size() > 0:
-		return files[randi() % files.size()]
-	return ""
-
 func load_terrain_models():
 	var dir = DirAccess.open("res://Assets/TerrainModels/")
 	if dir:
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				if file_name.begins_with("CPT_Terrain_L_a_") or file_name.begins_with("MT_Terrain_L_a_"):
-					var scene = load("res://Assets/TerrainModels/" + file_name)
-					if scene is PackedScene:
-						tile_scenes.append(scene)
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("CPT_Terrain_L_"):
+				var scene = load("res://Assets/TerrainModels/" + file_name)
+				if scene is PackedScene:
+					tile_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
