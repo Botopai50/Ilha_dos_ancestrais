@@ -8,18 +8,68 @@ var tile_scenes: Array[PackedScene] = []
 
 var noise = FastNoiseLite.new()
 
-var palette_material: StandardMaterial3D
+var palette_material: ShaderMaterial
 
 func _ready():
-	# Cria o material com a textura paleta que dá as cores
-	palette_material = StandardMaterial3D.new()
+	var shader = Shader.new()
+	shader.code = """
+	shader_type spatial;
+	render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+	
+	uniform sampler2D atlas_texture : source_color, filter_nearest;
+	uniform sampler2D noise_texture : repeat_enable, filter_nearest;
+	
+	varying flat vec3 poly_color;
+	
+	void vertex() {
+		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		
+		// Amostra o ruido com escala MUITO MENOR (0.0002) para gerar biomas GIGANTES
+		float n = textureLod(noise_texture, world_pos.xz * 0.0002, 0.0).r;
+		
+		vec4 tex_color = textureLod(atlas_texture, UV, 0.0);
+		vec3 final_col = tex_color.rgb;
+		
+		// A transicao (picotado) so vai acontecer na exata fronteira onde o ruido cruza os limites!
+		// No resto do bioma, a cor ficara 100% solida.
+		if (n > 0.6) {
+			// Neve
+			final_col = mix(final_col, vec3(0.9, 0.95, 1.0), 0.95);
+		} else if (n < 0.4) {
+			// Deserto/Areia
+			final_col = mix(final_col, vec3(0.85, 0.75, 0.55), 0.95);
+		}
+		
+		// Neve no topo das montanhas independente do bioma
+		if (world_pos.y > 22.0) {
+			final_col = mix(final_col, vec3(1.0, 1.0, 1.0), 0.9);
+		}
+		
+		poly_color = final_col;
+	}
+	
+	void fragment() {
+		ALBEDO = poly_color;
+	}
+	"""
+	
+	palette_material = ShaderMaterial.new()
+	palette_material.shader = shader
+	
 	var path = "res://Assets/TerrainModels/CPT_Terrain_Texture_Atlas_01.png"
 	var img = Image.load_from_file(ProjectSettings.globalize_path(path))
 	if img:
 		var texture = ImageTexture.create_from_image(img)
-		palette_material.albedo_texture = texture
-		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST # Pra ficar bem crisp/low-poly
+		palette_material.set_shader_parameter("atlas_texture", texture)
+		
+	var noise_tex = NoiseTexture2D.new()
+	var fnoise = FastNoiseLite.new()
+	fnoise.seed = randi()
+	fnoise.frequency = 0.02 # Frequencia interna do ruido (suavidade)
+	noise_tex.noise = fnoise
+	palette_material.set_shader_parameter("noise_texture", noise_tex)
 	
+	noise = FastNoiseLite.new()
 	load_terrain_models()
 	if tile_scenes.is_empty():
 		print("Warning: No tile scenes found in Assets/TerrainModels.")
@@ -34,7 +84,7 @@ func load_terrain_models():
 		var file_name = dir.get_next()
 		while file_name != "":
 			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				if file_name.begins_with("CPT_Terrain_L_") or file_name.begins_with("MT_Terrain_L_"):
+				if file_name.begins_with("CPT_Terrain_L_a_") or file_name.begins_with("MT_Terrain_L_a_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						tile_scenes.append(scene)
