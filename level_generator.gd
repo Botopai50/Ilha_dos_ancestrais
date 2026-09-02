@@ -69,7 +69,9 @@ func _ready():
 	var noise_tex = NoiseTexture2D.new()
 	var fnoise = FastNoiseLite.new()
 	fnoise.seed = randi()
-	fnoise.frequency = 0.005
+	fnoise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	fnoise.fractal_type = FastNoiseLite.FRACTAL_NONE # Remove 100% dos harmônicos e manchas aleatórias de neve
+	fnoise.frequency = 0.002 # Escala continental suave
 	noise_tex.noise = fnoise
 	palette_material.set_shader_parameter("noise_texture", noise_tex)
 	
