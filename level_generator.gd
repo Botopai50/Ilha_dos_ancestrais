@@ -6,8 +6,6 @@ var mountain_scenes: Array[PackedScene] = []
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
 @export var tile_spacing: float = 100.0
-
-var island_noise = FastNoiseLite.new()
 var mountain_noise = FastNoiseLite.new()
 
 var palette_material: ShaderMaterial
@@ -104,10 +102,6 @@ func load_terrain_models():
 		print("An error occurred when trying to access the path.")
 
 func generate_island():
-	island_noise.seed = randi()
-	island_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	island_noise.frequency = 0.2
-	
 	mountain_noise.seed = randi()
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
 	mountain_noise.frequency = 0.08
@@ -119,16 +113,10 @@ func generate_island():
 	if player:
 		player.position = Vector3(center_x * tile_spacing, 35.0, center_z * tile_spacing)
 
+	# Preenche 100% das células do mapa garantindo que não falte nenhum módulo
 	for x in range(grid_size_x):
 		for z in range(grid_size_z):
-			var angle = atan2(z - center_z, x - center_x)
-			var rad_variation = island_noise.get_noise_2d(cos(angle) * 5.0, sin(angle) * 5.0) * 1.2
-			var max_radius = 4.2 + rad_variation
-			var dist = sqrt(pow(x - center_x, 2) + pow(z - center_z, 2))
-			
-			# Todo o interior da ilha até a costa é 100% preenchido, eliminando buracos
-			if dist <= max_radius:
-				spawn_tile(x, z)
+			spawn_tile(x, z)
 
 func spawn_tile(x: int, z: int):
 	# Agrupa montanhas de forma suave em cadeias
