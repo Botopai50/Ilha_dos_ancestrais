@@ -1,8 +1,8 @@
 extends Node3D
 
 var tile_scenes: Array[PackedScene] = []
-@export var grid_size_x: int = 10
-@export var grid_size_z: int = 10
+@export var grid_size_x: int = 40
+@export var grid_size_z: int = 40
 @export var tile_spacing: float = 4.0
 @export var noise_threshold: float = 0.2
 
@@ -66,21 +66,31 @@ func load_terrain_models():
 
 func generate_island():
 	noise.seed = randi()
-	noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	noise.frequency = 0.05
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.frequency = 0.03
 	
 	var center_x = grid_size_x / 2.0
 	var center_z = grid_size_z / 2.0
 	var max_radius = min(center_x, center_z)
+	
+	# Move o jogador para o centro exato da grade gerada, um pouco acima para ele cair no chão
+	var player = get_node_or_null("../Player")
+	if player:
+		player.position = Vector3(center_x * tile_spacing, 10.0, center_z * tile_spacing)
 
 	for x in range(grid_size_x):
 		for z in range(grid_size_z):
-			var distance_to_center = Vector2(x - center_x, z - center_z).length()
-			var falloff = distance_to_center / max_radius
-			var noise_val = noise.get_noise_2d(x * 10, z * 10)
-			var final_val = noise_val - (falloff * falloff * 1.5)
+			var dist_x = float(x) / grid_size_x - 0.5
+			var dist_z = float(z) / grid_size_z - 0.5
+			var dist = sqrt(dist_x * dist_x + dist_z * dist_z) * 2.0
+			var falloff = clamp(1.0 - dist, 0.0, 1.0)
 			
-			if final_val > -noise_threshold:
+			var noise_val = (noise.get_noise_2d(x * 10.0, z * 10.0) + 1.0) / 2.0
+			var final_val = noise_val * falloff
+			
+			# Garante que o centro da ilha (onde o jogador nasce) sempre tenha blocos
+			var center_dist = sqrt(pow(x - grid_size_x/2.0, 2) + pow(z - grid_size_z/2.0, 2))
+			if final_val > 0.3 or center_dist < 3.0:
 				spawn_tile(x, z)
 
 func spawn_tile(x: int, z: int):
@@ -90,3 +100,12 @@ func spawn_tile(x: int, z: int):
 	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing)
 	var random_rot = (randi() % 4) * (PI / 2.0)
 	tile_instance.rotation.y = random_rot
+	
+	# Gera colisão para que o jogador não caia
+	create_collisions_recursive(tile_instance)
+
+func create_collisions_recursive(node: Node):
+	if node is MeshInstance3D:
+		node.create_trimesh_collision()
+	for child in node.get_children():
+		create_collisions_recursive(child)
