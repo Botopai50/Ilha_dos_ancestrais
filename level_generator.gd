@@ -33,10 +33,11 @@ func load_terrain_models():
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("CPT_Terrain_L_"):
-				var scene = load("res://Assets/TerrainModels/" + file_name)
-				if scene is PackedScene:
-					tile_scenes.append(scene)
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
+				if file_name.begins_with("CPT_Terrain_L_") or file_name.begins_with("MT_Terrain_L_"):
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						tile_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
