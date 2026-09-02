@@ -52,8 +52,14 @@ func _ready():
 	}
 	
 	void fragment() {
-		// Amostra a textura paleta original com iluminação nativa perfeita
-		ALBEDO = texture(atlas_texture, final_uv).rgb;
+		vec3 col = texture(atlas_texture, final_uv).rgb;
+		// Se for neve (quadrante superior direito x >= 0.5, y < 0.5), usamos um tom alpino suave (0.90, 0.94, 0.98)
+		// Isso evita o estouramento puro de 1.0 e permite ver todas as sombras, facetas e relevos 3D das colinas
+		if (final_uv.x >= 0.5 && final_uv.y < 0.5) {
+			col = vec3(0.90, 0.94, 0.98);
+		}
+		ALBEDO = col;
+		ROUGHNESS = 0.85;
 	}
 	"""
 	
