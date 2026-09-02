@@ -38,14 +38,15 @@ func _ready():
 		// Apenas as faces de chão/grama (x < 0.5, y < 0.5) são alteradas para os biomas.
 		// Os paredões de pedra das montanhas (y >= 0.5) permanecem sempre como pedra!
 		if (uv.x < 0.5 && uv.y < 0.5) {
-			if (n > 0.60) {
-				// Transição para Neve (desloca o UV para o quadrante superior direito)
+			if (n > 0.80) {
+				// Neve: bioma menor (aprox. 15% do mapa)
 				uv.x += 0.5;
-			} else if (n < 0.38) {
-				// Transição para Areia (desloca o UV para o quadrante inferior direito)
+			} else if (n < 0.28) {
+				// Areia/Praia: bioma intermediário (aprox. 25-30% do mapa, maior que a neve)
 				uv.x += 0.5;
 				uv.y += 0.5;
 			}
+			// O restante (aprox. 55-60% do mapa) permanece como o bioma principal: GRAMA VERDE!
 		}
 		
 		final_uv = uv;
