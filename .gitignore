@@ -1,0 +1,9 @@
+# Godot-specific ignores
+.godot/
+*.translation
+export_presets.cfg
+*.import
+
+# OS-specific
+.DS_Store
+Thumbs.db
