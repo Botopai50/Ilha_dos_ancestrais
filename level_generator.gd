@@ -138,9 +138,6 @@ func spawn_tile(x: int, z: int):
 	add_child(tile_instance)
 	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing)
 	
-	var random_rot = (randi() % 4) * (PI / 2.0)
-	tile_instance.rotation.y = random_rot
-	
 	create_collisions_recursive(tile_instance)
 
 func create_collisions_recursive(node: Node):
