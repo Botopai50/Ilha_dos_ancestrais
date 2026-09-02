@@ -23,8 +23,8 @@ func _ready():
 	
 	void vertex() {
 		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		float noise = textureLevel(noise_texture, world_pos.xz * 0.015, 0.0).r;
-		vec4 tex_color = textureLevel(atlas_texture, UV, 0.0);
+		float noise = textureLod(noise_texture, world_pos.xz * 0.015, 0.0).r;
+		vec4 tex_color = textureLod(atlas_texture, UV, 0.0);
 		
 		float h = world_pos.y;
 		vec3 final_col = tex_color.rgb;
