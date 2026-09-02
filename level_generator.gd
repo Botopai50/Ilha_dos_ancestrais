@@ -108,10 +108,9 @@ func generate_island():
 	
 	var center_x = (grid_size_x - 1) / 2.0
 	var center_z = (grid_size_z - 1) / 2.0
-	
 	var player = get_node_or_null("../Player")
 	if player:
-		player.position = Vector3(center_x * tile_spacing, 35.0, center_z * tile_spacing)
+		player.position = Vector3((grid_size_x * tile_spacing) / 2.0, 35.0, (grid_size_z * tile_spacing) / 2.0)
 
 	# Preenche 100% das células do mapa garantindo que não falte nenhum módulo
 	for x in range(grid_size_x):
@@ -136,7 +135,19 @@ func spawn_tile(x: int, z: int):
 		
 	var tile_instance = chosen_scene.instantiate()
 	add_child(tile_instance)
-	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing)
+	
+	# Sorteia rotação modular de 90 em 90 graus para dar rica variedade ao terreno
+	var rot_idx = randi() % 4
+	tile_instance.rotation.y = rot_idx * (PI / 2.0)
+	
+	# Compensa o pivô de quina dos modelos FBX para que a rotação gire no próprio eixo da célula, sem saltar de lugar
+	var rot_offsets = [
+		Vector3(100.0, 0, 0),       # 0 graus
+		Vector3(0, 0, 0),           # 90 graus
+		Vector3(0, 0, 100.0),       # 180 graus
+		Vector3(100.0, 0, 100.0)    # 270 graus
+	]
+	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing) + rot_offsets[rot_idx]
 	
 	create_collisions_recursive(tile_instance)
 
