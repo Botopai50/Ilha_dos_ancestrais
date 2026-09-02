@@ -22,7 +22,7 @@ func load_terrain_models():
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("MT_Terrain_"):
+			if file_name.ends_with(".fbx") and not "_LOD" in file_name and file_name.begins_with("MT_Terrain_M_"):
 				var scene = load("res://Assets/TerrainModels/" + file_name)
 				if scene is PackedScene:
 					tile_scenes.append(scene)
@@ -98,8 +98,8 @@ func spawn_tile(x: int, z: int):
 	var tile_instance = tile_scenes[tile_index].instantiate()
 	add_child(tile_instance)
 	tile_instance.position = Vector3(x * tile_spacing, 0, z * tile_spacing)
-	var random_rot = (randi() % 4) * (PI / 2.0)
-	tile_instance.rotation.y = random_rot
+	# var random_rot = (randi() % 4) * (PI / 2.0)
+	# tile_instance.rotation.y = random_rot
 	
 	# Gera colisão para que o jogador não caia
 	create_collisions_recursive(tile_instance)
