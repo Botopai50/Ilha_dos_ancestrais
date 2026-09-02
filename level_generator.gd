@@ -13,8 +13,9 @@ var palette_material: StandardMaterial3D
 func _ready():
 	# Cria o material com a textura paleta que dá as cores
 	palette_material = StandardMaterial3D.new()
-	var img = Image.new()
-	if img.load("res://Assets/TerrainModels/U_Terrain_Rock_01.png") == OK:
+	var path = "res://Assets/TerrainModels/U_Terrain_Rock_01.png"
+	var img = Image.load_from_file(ProjectSettings.globalize_path(path))
+	if img:
 		var texture = ImageTexture.create_from_image(img)
 		palette_material.albedo_texture = texture
 		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST # Pra ficar bem crisp/low-poly
