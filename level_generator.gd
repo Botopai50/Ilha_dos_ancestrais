@@ -8,7 +8,16 @@ var tile_scenes: Array[PackedScene] = []
 
 var noise = FastNoiseLite.new()
 
+var palette_material: StandardMaterial3D
+
 func _ready():
+	# Cria o material com a textura paleta que dá as cores
+	palette_material = StandardMaterial3D.new()
+	var texture = load("res://Assets/TerrainModels/U_Terrain_Rock_01.png")
+	if texture:
+		palette_material.albedo_texture = texture
+		palette_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST # Pra ficar bem crisp/low-poly
+	
 	load_terrain_models()
 	if tile_scenes.is_empty():
 		print("Warning: No tile scenes found in Assets/TerrainModels.")
@@ -101,11 +110,13 @@ func spawn_tile(x: int, z: int):
 	# var random_rot = (randi() % 4) * (PI / 2.0)
 	# tile_instance.rotation.y = random_rot
 	
-	# Gera colisão para que o jogador não caia
+	# Gera colisão para que o jogador não caia e aplica material
 	create_collisions_recursive(tile_instance)
 
 func create_collisions_recursive(node: Node):
 	if node is MeshInstance3D:
 		node.create_trimesh_collision()
+		if palette_material:
+			node.material_override = palette_material
 	for child in node.get_children():
 		create_collisions_recursive(child)
