@@ -2,10 +2,13 @@ extends Node3D
 
 var grass_scenes: Array[PackedScene] = []
 var mountain_scenes: Array[PackedScene] = []
+var lake_scenes: Array[PackedScene] = []
 var river_straight_scenes: Array[PackedScene] = []
 var river_curve_scenes: Array[PackedScene] = []
 var river_end_scenes: Array[PackedScene] = []
 var river_mouth_scenes: Array[PackedScene] = []
+var coast_straight_scenes: Array[PackedScene] = []
+var coast_corner_scenes: Array[PackedScene] = []
 
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
@@ -15,6 +18,7 @@ var mountain_noise = FastNoiseLite.new()
 var palette_material: ShaderMaterial
 var water_material: ShaderMaterial
 var river_cells: Dictionary = {}
+var lake_cells: Dictionary = {}
 
 func _ready():
 	var shader = Shader.new()
@@ -103,36 +107,51 @@ func load_terrain_models():
 		var file_name = dir.get_next()
 		while file_name != "":
 			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				# 1. Montanhas escarpadas
-				if file_name.begins_with("MT_Terrain_L_"):
+				# 1. Lagos de cratera alpina fechados nas 4 bordas com bacia profunda de agua
+				if file_name in ["MT_Terrain_L_b_02.fbx", "MT_Terrain_L_b_06.fbx", "MT_Terrain_L_b_08.fbx", "MT_Terrain_L_b_12.fbx", "MT_Terrain_L_e_01.fbx"]:
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						lake_scenes.append(scene)
+				# 2. Montanhas escarpadas
+				elif file_name.begins_with("MT_Terrain_L_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						mountain_scenes.append(scene)
-				# 2. Planícies e colinas de terra/grama
+				# 3. Planícies e colinas de terra/grama
 				elif file_name.begins_with("CPT_Terrain_L_") and not file_name.begins_with("CPT_Terrain_L_a_") and not file_name.begins_with("CPT_Terrain_L_g_02"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						grass_scenes.append(scene)
-				# 3. River End (Nascente / final fechado dentro do mapa)
+				# 4. River End (Nascente / final fechado dentro do mapa)
 				elif file_name == "CPT_River_End_L_a_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_end_scenes.append(scene)
-				# 4. Foz (Deságue aberto no mar na borda do mundo)
+				# 5. Foz (Deságue aberto no mar na borda do mundo)
 				elif file_name == "CPT_River_End_L_c_02.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_mouth_scenes.append(scene)
-				# 5. Trechos retos de rio
+				# 6. Trechos retos de rio
 				elif file_name == "CPT_River_L_a_01.fbx" or file_name == "CPT_River_L_a_03.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_straight_scenes.append(scene)
-				# 6. Curvas de rio de 90 graus
+				# 7. Curvas de rio de 90 graus
 				elif file_name == "CPT_River_L_b_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_curve_scenes.append(scene)
+				# 8. Costas retas da borda da ilha (relevo descendo suavemente para o mar)
+				elif file_name in ["CPT_Island_L_b_13.fbx", "CPT_Island_L_d_05.fbx"]:
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						coast_straight_scenes.append(scene)
+				# 9. Cantos marítimos da borda da ilha
+				elif file_name in ["CPT_Island_L_a_02.fbx", "CPT_Island_L_b_02.fbx"]:
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						coast_corner_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
@@ -186,6 +205,8 @@ func generate_natural_river_path() -> Array:
 
 func solve_and_plan_river():
 	river_cells.clear()
+	lake_cells.clear()
+	
 	var path = generate_natural_river_path()
 	var n = path.size()
 	if n < 2:
@@ -234,6 +255,27 @@ func solve_and_plan_river():
 				elif has_n and has_w: rot = 2
 				elif has_s and has_w: rot = 3
 				river_cells[cell] = { "type": "curve", "rot": rot }
+				
+	# 4. Planeja 1 a 2 lagos alpinos fechados em vales de montanha distantes do rio
+	var candidates = [
+		Vector2i(grid_size_x - 3, 3),
+		Vector2i(grid_size_x - 3, 5),
+		Vector2i(2, 4),
+		Vector2i(2, 6)
+	]
+	for cand in candidates:
+		var ok = true
+		for dx in range(-1, 2):
+			for dz in range(-1, 2):
+				if river_cells.has(cand + Vector2i(dx, dz)):
+					ok = false
+					break
+			if not ok:
+				break
+		if ok:
+			lake_cells[cand] = { "rot": randi() % 4 }
+			if lake_cells.size() >= 2:
+				break
 
 func spawn_water_plane():
 	var ocean = MeshInstance3D.new()
@@ -279,6 +321,7 @@ func spawn_tile(x: int, z: int):
 	var chosen_scene: PackedScene = null
 	var rot_idx = 0
 	
+	# 1. Rio Contínuo (Prioridade máxima)
 	if river_cells.has(pos_key):
 		var info = river_cells[pos_key]
 		rot_idx = info["rot"]
@@ -292,6 +335,45 @@ func spawn_tile(x: int, z: int):
 			chosen_scene = river_straight_scenes[0]
 		elif not grass_scenes.is_empty():
 			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+			
+	# 2. Lago Alpino Fechado no Interior
+	elif lake_cells.has(pos_key):
+		rot_idx = lake_cells[pos_key]["rot"]
+		if not lake_scenes.is_empty():
+			chosen_scene = lake_scenes[randi() % lake_scenes.size()]
+		elif not mountain_scenes.is_empty():
+			chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
+			
+	# 3. Bordas e Costas da Ilha (Relevo descendo suavemente para o oceano)
+	elif x == 0 or x == grid_size_x - 1 or z == 0 or z == grid_size_z - 1:
+		# 4 Cantos da ilha
+		if x == grid_size_x - 1 and z == 0:
+			chosen_scene = coast_corner_scenes[randi() % coast_corner_scenes.size()] if not coast_corner_scenes.is_empty() else null
+			rot_idx = 0
+		elif x == grid_size_x - 1 and z == grid_size_z - 1:
+			chosen_scene = coast_corner_scenes[randi() % coast_corner_scenes.size()] if not coast_corner_scenes.is_empty() else null
+			rot_idx = 1
+		elif x == 0 and z == grid_size_z - 1:
+			chosen_scene = coast_corner_scenes[randi() % coast_corner_scenes.size()] if not coast_corner_scenes.is_empty() else null
+			rot_idx = 2
+		elif x == 0 and z == 0:
+			chosen_scene = coast_corner_scenes[randi() % coast_corner_scenes.size()] if not coast_corner_scenes.is_empty() else null
+			rot_idx = 3
+		# Costas retas voltadas para fora
+		elif x == grid_size_x - 1:
+			chosen_scene = coast_straight_scenes[randi() % coast_straight_scenes.size()] if not coast_straight_scenes.is_empty() else null
+			rot_idx = 0
+		elif z == grid_size_z - 1:
+			chosen_scene = coast_straight_scenes[randi() % coast_straight_scenes.size()] if not coast_straight_scenes.is_empty() else null
+			rot_idx = 1
+		elif x == 0:
+			chosen_scene = coast_straight_scenes[randi() % coast_straight_scenes.size()] if not coast_straight_scenes.is_empty() else null
+			rot_idx = 2
+		elif z == 0:
+			chosen_scene = coast_straight_scenes[randi() % coast_straight_scenes.size()] if not coast_straight_scenes.is_empty() else null
+			rot_idx = 3
+			
+	# 4. Interior da Ilha (Cadeias de montanhas e planícies com bioma procedural)
 	else:
 		rot_idx = randi() % 4
 		var mnt_val = mountain_noise.get_noise_2d(x * 2.0, z * 2.0)
