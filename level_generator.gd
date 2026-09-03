@@ -9,6 +9,8 @@ var river_end_scenes: Array[PackedScene] = []
 var river_mouth_scenes: Array[PackedScene] = []
 var coast_straight_scenes: Array[PackedScene] = []
 var coast_corner_scenes: Array[PackedScene] = []
+var river_models_cache: Dictionary = {}
+const RiverCatalog = preload("res://river_catalog.gd")
 
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
@@ -33,29 +35,22 @@ func _ready():
 	varying flat vec2 final_uv;
 	
 	void vertex() {
-		vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		float n = textureLod(noise_texture, world_pos.xz * 0.001, 0.0).r;
-		
-		// Determina o bioma continental unificado para todo o chão da ilha (Grama, Areia ou Neve)
-		vec2 biome_uv;
-		if (n > 0.80) {
-			biome_uv = vec2(0.75, 0.25); // Quadrante Neve
-		} else if (n < 0.28) {
-			biome_uv = vec2(0.75, 0.75); // Quadrante Areia
-		} else {
-			biome_uv = vec2(0.25, 0.25); // Quadrante Grama
+		// 1. Água do rio e lagos: preserva a textura de água azul original do modelo
+		if (VERTEX.y < -0.8) {
+			final_uv = UV;
 		}
-		
-		// Paredões e encostas rochosas íngremes das montanhas permanecem como pedra cinza
-		if (UV.x < 0.5 && UV.y >= 0.5 && VERTEX.y > 2.5) {
-			if (n > 0.80) {
-				biome_uv = vec2(0.75, 0.25); // Cume com neve
-			} else {
-				biome_uv = vec2(0.25, 0.75); // Rocha cinza
-			}
+		// 2. Cumes altos das montanhas: recebem cobertura de neve alpina
+		else if (VERTEX.y > 15.0) {
+			final_uv = vec2(0.75, 0.25);
 		}
-		
-		final_uv = biome_uv;
+		// 3. Paredões rochosos íngremes das montanhas: rocha cinza
+		else if (UV.x < 0.5 && UV.y >= 0.5 && VERTEX.y > 3.0) {
+			final_uv = vec2(0.25, 0.75);
+		}
+		// 4. Todo o solo continental, planícies e margens: grama verde exuberante e unificada
+		else {
+			final_uv = vec2(0.25, 0.25);
+		}
 	}
 	
 	void fragment() {
@@ -128,26 +123,15 @@ func load_terrain_models():
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						plain_scenes.append(scene)
-				# 5. River End (Nascente / final fechado dentro do mapa)
-				elif file_name == "CPT_River_End_L_a_01.fbx":
+				# 5. Modelos Modulares de Rio Curados
+				elif file_name.begins_with("CPT_River_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
-						river_end_scenes.append(scene)
-				# 6. Foz (Deságue aberto no mar com canal alinhado em X=9.375)
-				elif file_name == "CPT_River_End_L_c_01_R.fbx":
-					var scene = load("res://Assets/TerrainModels/" + file_name)
-					if scene is PackedScene:
-						river_mouth_scenes.append(scene)
-				# 7. Trecho reto de rio (apenas 1 modelo curado)
-				elif file_name == "CPT_River_L_a_01.fbx":
-					var scene = load("res://Assets/TerrainModels/" + file_name)
-					if scene is PackedScene:
-						river_straight_scenes.append(scene)
-				# 8. Curva de rio (apenas 1 modelo curado)
-				elif file_name == "CPT_River_L_b_01.fbx":
-					var scene = load("res://Assets/TerrainModels/" + file_name)
-					if scene is PackedScene:
-						river_curve_scenes.append(scene)
+						river_models_cache[file_name] = scene
+						if file_name == "CPT_River_End_L_a_01.fbx": river_end_scenes.append(scene)
+						elif file_name == "CPT_River_End_L_c_01_R.fbx": river_mouth_scenes.append(scene)
+						elif file_name == "CPT_River_L_a_01.fbx": river_straight_scenes.append(scene)
+						elif file_name == "CPT_River_L_b_01.fbx": river_curve_scenes.append(scene)
 			file_name = dir.get_next()
 	else:
 		print("An error occurred when trying to access the path.")
@@ -161,10 +145,27 @@ var river_start_pos: Vector2i = Vector2i(4, 1)
 
 func generate_natural_river_path() -> Array:
 	var path = []
-	var river_x = 4
-	river_start_pos = Vector2i(river_x, 1)
-	for z in range(1, grid_size_z):
-		path.append(Vector2i(river_x, z))
+	var r_noise = FastNoiseLite.new()
+	r_noise.seed = randi()
+	r_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	r_noise.frequency = 0.22
+	
+	var cur_x = 4
+	river_start_pos = Vector2i(cur_x, 1)
+	path.append(river_start_pos)
+	
+	for z in range(2, grid_size_z):
+		var val = r_noise.get_noise_1d(z * 1.5)
+		var target_x = 4 + int(round(val * 2.5))
+		target_x = clampi(target_x, 2, grid_size_x - 3)
+		
+		# Move horizontalmente para criar a curva suave
+		while cur_x != target_x:
+			cur_x += 1 if target_x > cur_x else -1
+			path.append(Vector2i(cur_x, z - 1))
+			
+		path.append(Vector2i(cur_x, z))
+		
 	return path
 
 func solve_and_plan_river():
@@ -179,34 +180,31 @@ func solve_and_plan_river():
 	for i in range(n):
 		var cell = path[i]
 		if i == 0:
-			# 1. River End: Final / nascente fechada dentro do mapa
 			var to_next = path[i + 1] - cell
 			var rot = 0
 			if to_next == DIR_SOUTH: rot = 0
 			elif to_next == DIR_EAST:  rot = 1
 			elif to_next == DIR_NORTH: rot = 2
 			elif to_next == DIR_WEST:  rot = 3
-			river_cells[cell] = { "type": "river_end", "rot": rot }
+			river_cells[cell] = { "type": "river_end", "file": "CPT_River_End_L_a_01.fbx", "rot": rot }
 			
 		elif i == n - 1:
-			# 2. Foz: Deságue na borda do mundo
 			var from_prev = path[i - 1] - cell
 			var rot = 2
 			if from_prev == DIR_SOUTH: rot = 0
 			elif from_prev == DIR_EAST:  rot = 1
 			elif from_prev == DIR_NORTH: rot = 2
 			elif from_prev == DIR_WEST:  rot = 3
-			river_cells[cell] = { "type": "mouth", "rot": rot }
+			river_cells[cell] = { "type": "mouth", "file": "CPT_River_End_L_c_01_R.fbx", "rot": rot }
 			
 		else:
-			# 3. Trechos intermediários: Retas ou Curvas
 			var d1 = path[i - 1] - cell
 			var d2 = path[i + 1] - cell
 			
 			if (d1 == DIR_NORTH and d2 == DIR_SOUTH) or (d1 == DIR_SOUTH and d2 == DIR_NORTH):
-				river_cells[cell] = { "type": "straight", "rot": 0 }
+				river_cells[cell] = { "type": "straight", "file": "CPT_River_L_a_01.fbx", "rot": 0 }
 			elif (d1 == DIR_WEST and d2 == DIR_EAST) or (d1 == DIR_EAST and d2 == DIR_WEST):
-				river_cells[cell] = { "type": "straight", "rot": 1 }
+				river_cells[cell] = { "type": "straight", "file": "CPT_River_L_a_01.fbx", "rot": 1 }
 			else:
 				var has_s = (d1 == DIR_SOUTH or d2 == DIR_SOUTH)
 				var has_n = (d1 == DIR_NORTH or d2 == DIR_NORTH)
@@ -218,8 +216,8 @@ func solve_and_plan_river():
 				elif has_n and has_e: rot = 1
 				elif has_n and has_w: rot = 2
 				elif has_s and has_w: rot = 3
-				river_cells[cell] = { "type": "curve", "rot": rot }
-				
+				river_cells[cell] = { "type": "curve", "file": "CPT_River_L_b_01.fbx", "rot": rot }
+		
 	# 4. Planeja 1 a 2 lagos alpinos fechados em vales de montanha distantes do rio
 	var candidates = [
 		Vector2i(grid_size_x - 3, 3),
@@ -260,13 +258,13 @@ func spawn_water_plane():
 
 func generate_island():
 	mountain_noise.seed = randi()
-	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
+	mountain_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	mountain_noise.frequency = 0.15
 	
 	solve_and_plan_river()
 	spawn_water_plane()
 	
-	# Distribuição equilibrada das montanhas por toda a ilha, evitando aglomeração excessiva
+	# Distribuição contínua de relevo: vales fluviais tornam-se planícies (30%), cumes tornam-se montanhas
 	plain_cells.clear()
 	var mountain_cells: Dictionary = {}
 	
@@ -275,60 +273,31 @@ func generate_island():
 		for z in range(1, grid_size_z - 1):
 			var pos = Vector2i(x, z)
 			if not river_cells.has(pos) and not lake_cells.has(pos):
-				interior.append(pos)
+				# Distância até a calha do rio
+				var min_d_river = 99.0
+				for rp in river_cells.keys():
+					var d = Vector2(pos).distance_to(Vector2(rp))
+					if d < min_d_river:
+						min_d_river = d
+				# O relevo combina a proximidade do vale do rio com o ruído de relevo
+				var n_val = mountain_noise.get_noise_2d(x, z)
+				var elevation = min_d_river * 0.5 + n_val * 0.5
+				interior.append({ "pos": pos, "elev": elevation })
 				
-	# Total de planícies desejado: exatamente 30% do mapa (30 módulos)
+	# Ordena pelo relevo: menor elevação (vales do rio) primeiro
+	interior.sort_custom(func(a, b): return a["elev"] < b["elev"])
+	
+	# Exatamente 30 módulos (30% do mapa) tornam-se planícies limpas ao redor do rio
 	var target_plains = int(grid_size_x * grid_size_z * 0.30)
-	var target_mountains = interior.size() - target_plains
-	
-	# Divide o interior em 4 quadrantes para distribuir as montanhas uniformemente
-	var quads = { "NW": [], "SW": [], "NE": [], "SE": [] }
-	for p in interior:
-		if p.x < 4 and p.y < 5: quads["NW"].append(p)
-		elif p.x < 4 and p.y >= 5: quads["SW"].append(p)
-		elif p.x > 4 and p.y < 5: quads["NE"].append(p)
-		elif p.x > 4 and p.y >= 5: quads["SE"].append(p)
+	for i in range(min(target_plains, interior.size())):
+		plain_cells[interior[i]["pos"]] = true
 		
-	var mnt_per_quad = target_mountains / 4
-	var remaining_mnt = target_mountains
-	
-	for q_key in quads:
-		var cells = quads[q_key]
-		cells.sort_custom(func(a, b): return mountain_noise.get_noise_2d(a.x, a.y) > mountain_noise.get_noise_2d(b.x, b.y))
-		var q_count = 0
-		for c in cells:
-			if q_count < mnt_per_quad and remaining_mnt > 0:
-				# Evita que mais de 2 montanhas fiquem coladas diretamente
-				var neighbor_mnts = 0
-				for dx in [-1, 0, 1]:
-					for dz in [-1, 0, 1]:
-						if mountain_cells.has(c + Vector2i(dx, dz)):
-							neighbor_mnts += 1
-				if neighbor_mnts <= 2:
-					mountain_cells[c] = true
-					q_count += 1
-					remaining_mnt -= 1
-		for c in cells:
-			if q_count < mnt_per_quad and remaining_mnt > 0 and not mountain_cells.has(c):
-				mountain_cells[c] = true
-				q_count += 1
-				remaining_mnt -= 1
-				
-	if remaining_mnt > 0:
-		for p in interior:
-			if remaining_mnt <= 0: break
-			if not mountain_cells.has(p):
-				mountain_cells[p] = true
-				remaining_mnt -= 1
-				
-	# Os módulos restantes do interior tornam-se planícies abertas (exatamente 30 módulos = 30%)
-	for p in interior:
-		if not mountain_cells.has(p):
-			plain_cells[p] = true
+	# Os módulos restantes de relevo alto tornam-se montanhas
+	for i in range(target_plains, interior.size()):
+		mountain_cells[interior[i]["pos"]] = true
 	
 	var player = get_node_or_null("../Player")
 	if player:
-		# Posiciona o jogador com vista panorâmica para o River End e início do curso d'água
 		player.position = Vector3(
 			river_start_pos.x * tile_spacing + 50.0,
 			25.0,
@@ -345,18 +314,12 @@ func spawn_tile(x: int, z: int):
 	var chosen_scene: PackedScene = null
 	var rot_idx = 0
 	
-	# 1. Rio Contínuo (Prioridade máxima)
+	# 1. Rio Orgânico Meandrado (Prioridade máxima)
 	if river_cells.has(pos_key):
 		var info = river_cells[pos_key]
 		rot_idx = info["rot"]
-		if info["type"] == "river_end" and not river_end_scenes.is_empty():
-			chosen_scene = river_end_scenes[0]
-		elif info["type"] == "mouth" and not river_mouth_scenes.is_empty():
-			chosen_scene = river_mouth_scenes[0]
-		elif info["type"] == "curve" and not river_curve_scenes.is_empty():
-			chosen_scene = river_curve_scenes[0]
-		elif not river_straight_scenes.is_empty():
-			chosen_scene = river_straight_scenes[0]
+		if river_models_cache.has(info["file"]):
+			chosen_scene = river_models_cache[info["file"]]
 		elif not plain_scenes.is_empty():
 			chosen_scene = plain_scenes[randi() % plain_scenes.size()]
 			
