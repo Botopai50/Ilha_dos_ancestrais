@@ -1,6 +1,6 @@
 extends Node3D
 
-var grass_scenes: Array[PackedScene] = []
+var plain_scenes: Array[PackedScene] = []
 var mountain_scenes: Array[PackedScene] = []
 var lake_scenes: Array[PackedScene] = []
 var river_straight_scenes: Array[PackedScene] = []
@@ -19,6 +19,7 @@ var palette_material: ShaderMaterial
 var water_material: ShaderMaterial
 var river_cells: Dictionary = {}
 var lake_cells: Dictionary = {}
+var plain_cells: Dictionary = {}
 
 func _ready():
 	var shader = Shader.new()
@@ -94,7 +95,7 @@ func _ready():
 		water_material.shader = w_shader
 
 	load_terrain_models()
-	if grass_scenes.is_empty() and mountain_scenes.is_empty():
+	if plain_scenes.is_empty() and mountain_scenes.is_empty():
 		print("Warning: No terrain scenes found in Assets/TerrainModels.")
 		return
 		
@@ -107,34 +108,26 @@ func load_terrain_models():
 		var file_name = dir.get_next()
 		while file_name != "":
 			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				# 1. Lagos de cratera alpina fechados
-				if file_name in ["MT_Terrain_L_b_02.fbx", "MT_Terrain_L_b_06.fbx", "MT_Terrain_L_b_08.fbx", "MT_Terrain_L_b_12.fbx", "MT_Terrain_L_e_01.fbx"]:
+				# 1. Lagos alpinos fechados (apenas 1 modelo limpo e sem defeitos)
+				if file_name == "MT_Terrain_L_b_02.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						lake_scenes.append(scene)
-				# 2. Montanhas escarpadas sólidas
-				elif file_name.begins_with("MT_Terrain_L_a_"):
+				# 2. Montanhas sólidas de pico imponente (apenas 2 modelos curados com ~20m de altura)
+				elif file_name in ["MT_Terrain_L_a_09.fbx", "MT_Terrain_L_c_18.fbx"]:
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						mountain_scenes.append(scene)
-				# 3. Praias e costas planas no nível do mar (para bordas da ilha)
-				elif file_name.begins_with("CPT_Terrain_L_a_"):
+				# 3. Praias e costas planas no nível do mar (apenas 1 modelo plano)
+				elif file_name == "CPT_Terrain_L_a_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						coast_straight_scenes.append(scene)
-				# 4. Planícies e colinas 100% sólidas e limpas (sem furos ou depressões acidentais)
-				elif file_name in [
-					"CPT_Terrain_L_b_01.fbx", "CPT_Terrain_L_b_05.fbx", "CPT_Terrain_L_b_14.fbx", 
-					"CPT_Terrain_L_b_19.fbx", "CPT_Terrain_L_b_28.fbx", "CPT_Terrain_L_b_29.fbx", 
-					"CPT_Terrain_L_b_33.fbx", "CPT_Terrain_L_b_34.fbx", "CPT_Terrain_L_b_41.fbx", 
-					"CPT_Terrain_L_b_45.fbx", "CPT_Terrain_L_b_47.fbx", "CPT_Terrain_L_e_15.fbx", 
-					"CPT_Terrain_L_e_16.fbx", "CPT_Terrain_L_e_17.fbx", "CPT_Terrain_L_e_19.fbx", 
-					"CPT_Terrain_L_e_24.fbx", "CPT_Terrain_L_f_01.fbx", "CPT_Terrain_L_f_08.fbx", 
-					"CPT_Terrain_L_f_09.fbx", "CPT_Terrain_L_f_16.fbx", "CPT_Terrain_L_g_01.fbx"
-				]:
+				# 4. Planícies abertas e limpas (apenas 2 modelos planos sem relevo acidentado)
+				elif file_name in ["CPT_Terrain_L_a_01.fbx", "CPT_Terrain_L_a_04.fbx"]:
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
-						grass_scenes.append(scene)
+						plain_scenes.append(scene)
 				# 5. River End (Nascente / final fechado dentro do mapa)
 				elif file_name == "CPT_River_End_L_a_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
@@ -145,12 +138,12 @@ func load_terrain_models():
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_mouth_scenes.append(scene)
-				# 7. Trechos retos de rio
-				elif file_name == "CPT_River_L_a_01.fbx" or file_name == "CPT_River_L_a_03.fbx":
+				# 7. Trecho reto de rio (apenas 1 modelo curado)
+				elif file_name == "CPT_River_L_a_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_straight_scenes.append(scene)
-				# 8. Curvas de rio de 90 graus
+				# 8. Curva de rio (apenas 1 modelo curado)
 				elif file_name == "CPT_River_L_b_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
@@ -268,10 +261,25 @@ func spawn_water_plane():
 func generate_island():
 	mountain_noise.seed = randi()
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	mountain_noise.frequency = 0.08
+	mountain_noise.frequency = 0.12
 	
 	solve_and_plan_river()
 	spawn_water_plane()
+	
+	# Seleciona exatamente 30% dos módulos da ilha para serem planícies limpas (30 módulos em grade 10x10)
+	plain_cells.clear()
+	var candidates = []
+	for x in range(1, grid_size_x - 1):
+		for z in range(1, grid_size_z - 1):
+			var pos = Vector2i(x, z)
+			if not river_cells.has(pos) and not lake_cells.has(pos):
+				var val = mountain_noise.get_noise_2d(x, z)
+				candidates.append({"pos": pos, "val": val})
+	candidates.sort_custom(func(a, b): return a["val"] < b["val"])
+	
+	var target_plains = int(grid_size_x * grid_size_z * 0.30)
+	for i in range(min(target_plains, candidates.size())):
+		plain_cells[candidates[i]["pos"]] = true
 	
 	var player = get_node_or_null("../Player")
 	if player:
@@ -304,8 +312,8 @@ func spawn_tile(x: int, z: int):
 			chosen_scene = river_curve_scenes[0]
 		elif not river_straight_scenes.is_empty():
 			chosen_scene = river_straight_scenes[0]
-		elif not grass_scenes.is_empty():
-			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+		elif not plain_scenes.is_empty():
+			chosen_scene = plain_scenes[randi() % plain_scenes.size()]
 			
 	# 2. Lago Alpino Fechado no Interior
 	elif lake_cells.has(pos_key):
@@ -320,17 +328,14 @@ func spawn_tile(x: int, z: int):
 		rot_idx = randi() % 4
 		if not coast_straight_scenes.is_empty():
 			chosen_scene = coast_straight_scenes[randi() % coast_straight_scenes.size()]
-		elif not grass_scenes.is_empty():
-			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+		elif not plain_scenes.is_empty():
+			chosen_scene = plain_scenes[randi() % plain_scenes.size()]
 			
-	# 4. Interior da Ilha (Cadeias de montanhas e planícies com bioma procedural)
+	# 4. Interior da Ilha (Exatamente 30% Planícies e o restante Montanhas)
 	else:
 		rot_idx = randi() % 4
-		var mnt_val = mountain_noise.get_noise_2d(x * 2.0, z * 2.0)
-		if mnt_val > 0.15 and not mountain_scenes.is_empty():
-			chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
-		elif not grass_scenes.is_empty():
-			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
+		if plain_cells.has(pos_key) and not plain_scenes.is_empty():
+			chosen_scene = plain_scenes[randi() % plain_scenes.size()]
 		elif not mountain_scenes.is_empty():
 			chosen_scene = mountain_scenes[randi() % mountain_scenes.size()]
 		
