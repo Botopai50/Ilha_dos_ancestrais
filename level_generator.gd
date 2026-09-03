@@ -4,8 +4,8 @@ var grass_scenes: Array[PackedScene] = []
 var mountain_scenes: Array[PackedScene] = []
 var river_straight_scenes: Array[PackedScene] = []
 var river_curve_scenes: Array[PackedScene] = []
-var lake_scenes: Array[PackedScene] = []
-var coastal_mouth_scenes: Array[PackedScene] = []
+var river_end_scenes: Array[PackedScene] = []
+var river_mouth_scenes: Array[PackedScene] = []
 
 @export var grid_size_x: int = 10
 @export var grid_size_z: int = 10
@@ -15,7 +15,6 @@ var mountain_noise = FastNoiseLite.new()
 var palette_material: ShaderMaterial
 var water_material: ShaderMaterial
 var river_cells: Dictionary = {}
-var lake_cells: Dictionary = {}
 
 func _ready():
 	var shader = Shader.new()
@@ -104,33 +103,33 @@ func load_terrain_models():
 		var file_name = dir.get_next()
 		while file_name != "":
 			if file_name.ends_with(".fbx") and not "_LOD" in file_name:
-				# Carrega todas as planícies e colinas de grama (letras b até g)
-				if file_name.begins_with("CPT_Terrain_L_") and not file_name.begins_with("CPT_Terrain_L_a_"):
-					var scene = load("res://Assets/TerrainModels/" + file_name)
-					if scene is PackedScene:
-						grass_scenes.append(scene)
-				# Carrega todas as montanhas escarpadas
-				elif file_name.begins_with("MT_Terrain_L_"):
+				# 1. Montanhas escarpadas
+				if file_name.begins_with("MT_Terrain_L_"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						mountain_scenes.append(scene)
-				# Carrega exclusivamente lagos fechados para o interior da ilha (com relevo de terra fechado, sem cortes retos)
-				elif file_name in ["CPT_River_End_L_a_01.fbx", "CPT_River_End_L_a_01_R.fbx", "CPT_River_End_L_b_01.fbx"]:
+				# 2. Planícies e colinas de terra/grama
+				elif file_name.begins_with("CPT_Terrain_L_") and not file_name.begins_with("CPT_Terrain_L_a_") and not file_name.begins_with("CPT_Terrain_L_g_02"):
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
-						lake_scenes.append(scene)
-				# Carrega fozes e deságues com bordas abertas para o oceano na borda da ilha
-				elif file_name.begins_with("CPT_River_End_"):
+						grass_scenes.append(scene)
+				# 3. River End (Nascente / final fechado dentro do mapa)
+				elif file_name == "CPT_River_End_L_a_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
-						coastal_mouth_scenes.append(scene)
-				# Carrega trechos retos de rio
-				elif file_name.begins_with("CPT_River_L_a_") or file_name.begins_with("CPT_River_L_d_"):
+						river_end_scenes.append(scene)
+				# 4. Foz (Deságue aberto no mar na borda do mundo)
+				elif file_name == "CPT_River_End_L_c_02.fbx":
+					var scene = load("res://Assets/TerrainModels/" + file_name)
+					if scene is PackedScene:
+						river_mouth_scenes.append(scene)
+				# 5. Trechos retos de rio
+				elif file_name == "CPT_River_L_a_01.fbx" or file_name == "CPT_River_L_a_03.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_straight_scenes.append(scene)
-				# Carrega curvas de rio
-				elif file_name.begins_with("CPT_River_L_b_") or file_name.begins_with("CPT_River_L_c_") or file_name.begins_with("CPT_River_L_e_"):
+				# 6. Curvas de rio de 90 graus
+				elif file_name == "CPT_River_L_b_01.fbx":
 					var scene = load("res://Assets/TerrainModels/" + file_name)
 					if scene is PackedScene:
 						river_curve_scenes.append(scene)
@@ -138,32 +137,103 @@ func load_terrain_models():
 	else:
 		print("An error occurred when trying to access the path.")
 
-func plan_rivers_and_lakes():
+const DIR_NORTH = Vector2i(0, -1)
+const DIR_SOUTH = Vector2i(0, 1)
+const DIR_WEST  = Vector2i(-1, 0)
+const DIR_EAST  = Vector2i(1, 0)
+
+var river_start_pos: Vector2i = Vector2i(4, 1)
+
+func generate_natural_river_path() -> Array:
+	var path = []
+	# River End nasce no interior alto do mapa (longe das bordas)
+	var start_x = randi_range(3, grid_size_x - 4)
+	var start_z = 1
+	var cur = Vector2i(start_x, start_z)
+	path.append(cur)
+	river_start_pos = cur
+	
+	var visited = {cur: true}
+	
+	# Caminha organicamente serpenteando em direção à borda sul do mundo (Z = grid_size_z - 1)
+	while cur.y < grid_size_z - 1:
+		var possible = []
+		var south = cur + DIR_SOUTH
+		if not visited.has(south):
+			possible.append(DIR_SOUTH)
+			possible.append(DIR_SOUTH) # peso para descer rumo ao mar
+			
+		if cur.x > 2:
+			var west = cur + DIR_WEST
+			if not visited.has(west):
+				possible.append(DIR_WEST)
+		if cur.x < grid_size_x - 3:
+			var east = cur + DIR_EAST
+			if not visited.has(east):
+				possible.append(DIR_EAST)
+				
+		if possible.is_empty():
+			cur = cur + DIR_SOUTH
+			path.append(cur)
+			break
+			
+		var step = possible[randi() % possible.size()]
+		cur = cur + step
+		path.append(cur)
+		visited[cur] = true
+		
+	return path
+
+func solve_and_plan_river():
 	river_cells.clear()
-	lake_cells.clear()
-	
-	# 1. Grande Lago Central em vale panorâmico
-	lake_cells[Vector2i(4, 3)] = { "rot": randi() % 4 }
-	lake_cells[Vector2i(5, 3)] = { "rot": randi() % 4 }
-	lake_cells[Vector2i(4, 4)] = { "rot": randi() % 4 }
-	
-	# 2. Lago Alpino / Montanha
-	lake_cells[Vector2i(7, 5)] = { "rot": randi() % 4 }
-	lake_cells[Vector2i(7, 6)] = { "rot": randi() % 4 }
-	
-	# 3. Rio Norte (Nascente que corre do Norte até o Lago Central)
-	river_cells[Vector2i(4, 0)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(4, 1)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(4, 2)] = { "type": "straight", "rot": 0 }
-	
-	# 4. Rio Sul (Flui do Lago Central em direção à costa sul)
-	river_cells[Vector2i(5, 4)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(5, 5)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(5, 6)] = { "type": "curve", "rot": 1 }
-	river_cells[Vector2i(6, 6)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(6, 7)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(6, 8)] = { "type": "straight", "rot": 0 }
-	river_cells[Vector2i(6, 9)] = { "type": "mouth", "rot": 2 }
+	var path = generate_natural_river_path()
+	var n = path.size()
+	if n < 2:
+		return
+		
+	for i in range(n):
+		var cell = path[i]
+		if i == 0:
+			# 1. River End: Final / nascente fechada dentro do mapa
+			var to_next = path[i + 1] - cell
+			var rot = 0
+			if to_next == DIR_SOUTH: rot = 0
+			elif to_next == DIR_EAST:  rot = 1
+			elif to_next == DIR_NORTH: rot = 2
+			elif to_next == DIR_WEST:  rot = 3
+			river_cells[cell] = { "type": "river_end", "rot": rot }
+			
+		elif i == n - 1:
+			# 2. Foz: Deságue na borda do mundo
+			var from_prev = path[i - 1] - cell
+			var rot = 2
+			if from_prev == DIR_SOUTH: rot = 0
+			elif from_prev == DIR_EAST:  rot = 1
+			elif from_prev == DIR_NORTH: rot = 2
+			elif from_prev == DIR_WEST:  rot = 3
+			river_cells[cell] = { "type": "mouth", "rot": rot }
+			
+		else:
+			# 3. Trechos intermediários: Retas ou Curvas
+			var d1 = path[i - 1] - cell
+			var d2 = path[i + 1] - cell
+			
+			if (d1 == DIR_NORTH and d2 == DIR_SOUTH) or (d1 == DIR_SOUTH and d2 == DIR_NORTH):
+				river_cells[cell] = { "type": "straight", "rot": 0 }
+			elif (d1 == DIR_WEST and d2 == DIR_EAST) or (d1 == DIR_EAST and d2 == DIR_WEST):
+				river_cells[cell] = { "type": "straight", "rot": 1 }
+			else:
+				var has_s = (d1 == DIR_SOUTH or d2 == DIR_SOUTH)
+				var has_n = (d1 == DIR_NORTH or d2 == DIR_NORTH)
+				var has_e = (d1 == DIR_EAST  or d2 == DIR_EAST)
+				var has_w = (d1 == DIR_WEST  or d2 == DIR_WEST)
+				
+				var rot = 0
+				if has_s and has_e: rot = 0
+				elif has_n and has_e: rot = 1
+				elif has_n and has_w: rot = 2
+				elif has_s and has_w: rot = 3
+				river_cells[cell] = { "type": "curve", "rot": rot }
 
 func spawn_water_plane():
 	var ocean = MeshInstance3D.new()
@@ -187,13 +257,17 @@ func generate_island():
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
 	mountain_noise.frequency = 0.08
 	
-	plan_rivers_and_lakes()
+	solve_and_plan_river()
 	spawn_water_plane()
 	
 	var player = get_node_or_null("../Player")
 	if player:
-		# Posiciona o jogador no topo de uma colina com vista para o rio e lago
-		player.position = Vector3(300.0, 25.0, 250.0)
+		# Posiciona o jogador com vista panorâmica para o River End e início do curso d'água
+		player.position = Vector3(
+			river_start_pos.x * tile_spacing + 50.0,
+			25.0,
+			river_start_pos.y * tile_spacing + 70.0
+		)
 
 	# Preenche 100% das células do mapa garantindo que não falte nenhum módulo
 	for x in range(grid_size_x):
@@ -205,24 +279,17 @@ func spawn_tile(x: int, z: int):
 	var chosen_scene: PackedScene = null
 	var rot_idx = 0
 	
-	if lake_cells.has(pos_key):
-		rot_idx = lake_cells[pos_key]["rot"]
-		if not lake_scenes.is_empty():
-			chosen_scene = lake_scenes[randi() % lake_scenes.size()]
-		elif not grass_scenes.is_empty():
-			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
-	elif river_cells.has(pos_key):
+	if river_cells.has(pos_key):
 		var info = river_cells[pos_key]
 		rot_idx = info["rot"]
-		if info["type"] == "curve" and not river_curve_scenes.is_empty():
-			chosen_scene = river_curve_scenes[randi() % river_curve_scenes.size()]
-		elif info["type"] == "mouth":
-			if not coastal_mouth_scenes.is_empty():
-				chosen_scene = coastal_mouth_scenes[randi() % coastal_mouth_scenes.size()]
-			elif not lake_scenes.is_empty():
-				chosen_scene = lake_scenes[randi() % lake_scenes.size()]
+		if info["type"] == "river_end" and not river_end_scenes.is_empty():
+			chosen_scene = river_end_scenes[0]
+		elif info["type"] == "mouth" and not river_mouth_scenes.is_empty():
+			chosen_scene = river_mouth_scenes[0]
+		elif info["type"] == "curve" and not river_curve_scenes.is_empty():
+			chosen_scene = river_curve_scenes[0]
 		elif not river_straight_scenes.is_empty():
-			chosen_scene = river_straight_scenes[randi() % river_straight_scenes.size()]
+			chosen_scene = river_straight_scenes[0]
 		elif not grass_scenes.is_empty():
 			chosen_scene = grass_scenes[randi() % grass_scenes.size()]
 	else:
