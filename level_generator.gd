@@ -261,25 +261,70 @@ func spawn_water_plane():
 func generate_island():
 	mountain_noise.seed = randi()
 	mountain_noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	mountain_noise.frequency = 0.12
+	mountain_noise.frequency = 0.15
 	
 	solve_and_plan_river()
 	spawn_water_plane()
 	
-	# Seleciona exatamente 30% dos módulos da ilha para serem planícies limpas (30 módulos em grade 10x10)
+	# Distribuição equilibrada das montanhas por toda a ilha, evitando aglomeração excessiva
 	plain_cells.clear()
-	var candidates = []
+	var mountain_cells: Dictionary = {}
+	
+	var interior = []
 	for x in range(1, grid_size_x - 1):
 		for z in range(1, grid_size_z - 1):
 			var pos = Vector2i(x, z)
 			if not river_cells.has(pos) and not lake_cells.has(pos):
-				var val = mountain_noise.get_noise_2d(x, z)
-				candidates.append({"pos": pos, "val": val})
-	candidates.sort_custom(func(a, b): return a["val"] < b["val"])
-	
+				interior.append(pos)
+				
+	# Total de planícies desejado: exatamente 30% do mapa (30 módulos)
 	var target_plains = int(grid_size_x * grid_size_z * 0.30)
-	for i in range(min(target_plains, candidates.size())):
-		plain_cells[candidates[i]["pos"]] = true
+	var target_mountains = interior.size() - target_plains
+	
+	# Divide o interior em 4 quadrantes para distribuir as montanhas uniformemente
+	var quads = { "NW": [], "SW": [], "NE": [], "SE": [] }
+	for p in interior:
+		if p.x < 4 and p.y < 5: quads["NW"].append(p)
+		elif p.x < 4 and p.y >= 5: quads["SW"].append(p)
+		elif p.x > 4 and p.y < 5: quads["NE"].append(p)
+		elif p.x > 4 and p.y >= 5: quads["SE"].append(p)
+		
+	var mnt_per_quad = target_mountains / 4
+	var remaining_mnt = target_mountains
+	
+	for q_key in quads:
+		var cells = quads[q_key]
+		cells.sort_custom(func(a, b): return mountain_noise.get_noise_2d(a.x, a.y) > mountain_noise.get_noise_2d(b.x, b.y))
+		var q_count = 0
+		for c in cells:
+			if q_count < mnt_per_quad and remaining_mnt > 0:
+				# Evita que mais de 2 montanhas fiquem coladas diretamente
+				var neighbor_mnts = 0
+				for dx in [-1, 0, 1]:
+					for dz in [-1, 0, 1]:
+						if mountain_cells.has(c + Vector2i(dx, dz)):
+							neighbor_mnts += 1
+				if neighbor_mnts <= 2:
+					mountain_cells[c] = true
+					q_count += 1
+					remaining_mnt -= 1
+		for c in cells:
+			if q_count < mnt_per_quad and remaining_mnt > 0 and not mountain_cells.has(c):
+				mountain_cells[c] = true
+				q_count += 1
+				remaining_mnt -= 1
+				
+	if remaining_mnt > 0:
+		for p in interior:
+			if remaining_mnt <= 0: break
+			if not mountain_cells.has(p):
+				mountain_cells[p] = true
+				remaining_mnt -= 1
+				
+	# Os módulos restantes do interior tornam-se planícies abertas (exatamente 30 módulos = 30%)
+	for p in interior:
+		if not mountain_cells.has(p):
+			plain_cells[p] = true
 	
 	var player = get_node_or_null("../Player")
 	if player:
